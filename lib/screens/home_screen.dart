@@ -26,6 +26,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _initializeLocale();
+    _restoreRecordingState();
   }
 
   Future<void> _initializeLocale() async {
@@ -35,6 +36,35 @@ class _HomeScreenState extends State<HomeScreen> {
         _localeInitialized = true;
       });
       _loadRecordedFiles();
+    }
+  }
+  
+  /// 恢复录音状态（应用重启时）
+  /// 注意：由于 record 包的限制，应用重启后无法继续之前的录音
+  /// 这个方法主要用于清理状态
+  Future<void> _restoreRecordingState() async {
+    print('Checking for previous recording state...');
+    final restored = await _recorderService.restoreRecordingState();
+    print('Restore result: $restored');
+    
+    // 由于 record 包的限制，恢复通常会失败（返回 false）
+    // 这是正常的，因为 MediaRecorder 在应用重启时已经停止并保存了文件
+    if (!restored && mounted) {
+      // 恢复失败是正常的，刷新录音列表以显示新保存的文件
+      print('Recording was saved when app restarted. Refreshing file list...');
+      await _loadRecordedFiles();
+    } else if (restored && mounted) {
+      // 如果恢复成功（理论上不应该发生），更新UI
+      _durationSubscription?.cancel();
+      _durationSubscription = _recorderService.durationStream?.listen((duration) {
+        if (mounted) {
+          setState(() {
+            _recordingDuration = duration;
+          });
+        }
+      });
+      setState(() {});
+      print('Recording state restored successfully, UI updated');
     }
   }
 
@@ -178,7 +208,10 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _durationSubscription?.cancel();
-    _recorderService.dispose();
+    // 不要在这里调用 _recorderService.dispose()，因为：
+    // 1. 如果正在录音，dispose 会停止录音
+    // 2. 单例服务应该在应用生命周期内保持存在
+    // 3. 只有在真正停止录音时才应该清理
     _analyzerService.dispose();
     super.dispose();
   }
